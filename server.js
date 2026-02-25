@@ -60,12 +60,15 @@ app.post("/webhook", async (req, res) => {
 
       const { error } = await supabase
         .from("users")
-        .upsert({
-          email: email,
-          product_id: product_id,
-          status: "active",
-          updated_at: new Date()
-        });
+        .upsert(
+          {
+            email: email,
+            product_id: product_id,
+            status: "active",
+            updated_at: new Date()
+          },
+          { onConflict: "email" }   // 🔥 ESTA PARTE ES LA CLAVE
+        );
 
       if (error) {
         console.log("Error guardando:", error);
