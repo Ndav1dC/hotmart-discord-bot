@@ -77,7 +77,7 @@ app.post("/webhook", async (req, res) => {
 
     if (
       event === "PURCHASE_CANCELED" ||
-      event === "SUBSCRIPTION_CANCELLATION" ||
+      event === "SUBSCRIPTION_CANCELED" ||
       event === "REFUND"
     ) {
       const email = payload.buyer.email;
