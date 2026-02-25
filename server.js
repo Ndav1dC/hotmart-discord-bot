@@ -10,43 +10,19 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE
 );
 
-// 🔹 Ruta para ver todos los usuarios
+// =============================
+// TEST ROUTE
+// =============================
 app.get("/test", async (req, res) => {
   const { data, error } = await supabase.from("users").select("*");
 
-  if (error) {
-    console.log("Error:", error);
-    return res.status(500).json(error);
-  }
-
+  if (error) return res.status(500).json(error);
   res.json(data);
 });
 
-// 🔹 Ruta para insertar usuario de prueba
-app.get("/insert-test", async (req, res) => {
-  const { data, error } = await supabase.from("users").insert([
-    {
-      discord_id: "123456789",
-      email: "test@email.com",
-      product_id: "producto_1",
-      status: "active",
-      expires_at: new Date(),
-      created_at: new Date(),
-      updated_at: new Date()
-    }
-  ]);
-
-  if (error) {
-    console.log("Error:", error);
-    return res.status(500).json(error);
-  }
-
-  res.json({ message: "Usuario insertado", data });
-});
-
-app.listen(3000, () => {
-  console.log("Servidor corriendo en puerto 3000");
-});
+// =============================
+// WEBHOOK HOTMART
+// =============================
 app.post("/webhook", async (req, res) => {
   try {
     const event = req.body.event;
@@ -54,20 +30,53 @@ app.post("/webhook", async (req, res) => {
 
     console.log("Evento recibido:", event);
 
+    if (!payload || !payload.buyer) {
+      console.log("Payload inválido");
+      return res.sendStatus(200);
+    }
+
+    const email = payload.buyer.email;
+
+    // =============================
+    // PURCHASE APPROVED
+    // =============================
     if (event === "PURCHASE_APPROVED") {
-      const email = payload.buyer.email;
-      const product_id = payload.product.id;
+
+      const product_id = payload.product?.id || null;
+      const plan_name = payload.subscription?.plan?.name || null;
+      const subscription_code =
+        payload.subscription?.subscriber?.code || null;
+      const transaction =
+        payload.purchase?.transaction || null;
+
+      // Convertir fecha next_charge a Date
+      let expires_at = null;
+      if (payload.purchase?.date_next_charge) {
+        expires_at = new Date(
+          payload.purchase.date_next_charge
+        );
+      }
+
+      // Diferenciar trial vs plan real
+      let status = "active";
+      if (plan_name && plan_name.toLowerCase().includes("prueba")) {
+        status = "trial";
+      }
 
       const { error } = await supabase
         .from("users")
         .upsert(
           {
-            email: email,
-            product_id: product_id,
-            status: "active",
+            email,
+            product_id,
+            plan_name,
+            subscription_code,
+            hotmart_transaction: transaction,
+            status,
+            expires_at,
             updated_at: new Date()
           },
-          { onConflict: "email" }   // 🔥 ESTA PARTE ES LA CLAVE
+          { onConflict: "email" }
         );
 
       if (error) {
@@ -75,17 +84,18 @@ app.post("/webhook", async (req, res) => {
         return res.status(500).json(error);
       }
 
-      console.log("Usuario activado:", email);
+      console.log("Usuario activado:", email, "| Plan:", plan_name);
     }
 
+    // =============================
+    // CANCELACIONES Y REEMBOLSOS
+    // =============================
     if (
       event === "PURCHASE_CANCELED" ||
-      event === "SUBSCRIPTION_CANCELED" ||
-      event === "REFUND"
+      event === "SUBSCRIPTION_CANCELLATION" ||
+      event === "PURCHASE_REFUNDED"
     ) {
-      const email = payload.buyer.email;
-
-      await supabase
+      const { error } = await supabase
         .from("users")
         .update({
           status: "canceled",
@@ -93,12 +103,25 @@ app.post("/webhook", async (req, res) => {
         })
         .eq("email", email);
 
+      if (error) {
+        console.log("Error cancelando:", error);
+        return res.status(500).json(error);
+      }
+
       console.log("Usuario cancelado:", email);
     }
 
     res.sendStatus(200);
+
   } catch (err) {
     console.log("Error webhook:", err);
     res.sendStatus(500);
   }
+});
+
+// =============================
+// START SERVER
+// =============================
+app.listen(3000, () => {
+  console.log("Servidor corriendo en puerto 3000");
 });
